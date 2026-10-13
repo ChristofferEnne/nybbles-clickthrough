@@ -1,0 +1,79 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+    tags: ["v*"]
+  pull_request:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            built: target/release/clickthrough.dll
+            file: clickthrough.windows.x86_64.dll
+          - os: ubuntu-22.04 # older glibc, so the .so runs on more distros
+            built: target/release/libclickthrough.so
+            file: libclickthrough.linux.x86_64.so
+          - os: macos-latest
+            built: libclickthrough.macos.dylib # universal, made with lipo below
+            file: libclickthrough.macos.dylib
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ runner.os == 'macOS' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - name: Build
+        if: runner.os != 'macOS'
+        run: cargo build --release --locked
+
+      - name: Build (universal macOS)
+        if: runner.os == 'macOS'
+        run: |
+          cargo build --release --locked --target aarch64-apple-darwin
+          cargo build --release --locked --target x86_64-apple-darwin
+          lipo -create -output libclickthrough.macos.dylib \
+            target/aarch64-apple-darwin/release/libclickthrough.dylib \
+            target/x86_64-apple-darwin/release/libclickthrough.dylib
+
+      - name: Stage
+        shell: bash
+        run: |
+          mkdir -p out
+          cp "${{ matrix.built }}" "out/${{ matrix.file }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.file }}
+          path: out/${{ matrix.file }}
+
+  package:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          path: addons/nybbles_clickthrough/bin
+          merge-multiple: true
+
+      - name: Zip the addon
+        run: zip -r nybbles_clickthrough.zip addons/nybbles_clickthrough
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: nybbles_clickthrough
+          path: nybbles_clickthrough.zip
+
+      - name: Publish the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "${{ github.ref_name }}" nybbles_clickthrough.zip --title "${{ github.ref_name }}" --generate-notes
