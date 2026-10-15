@@ -1,5 +1,6 @@
 use godot::prelude::*;
 use godot::classes::DisplayServer;
+#[cfg(target_os = "windows")]
 use godot::classes::display_server::HandleType;
 
 struct ClickthroughExtension;
@@ -33,7 +34,7 @@ impl ClickThroughManager {
                 WS_EX_LAYERED, WS_EX_TRANSPARENT
             };
 
-            let mut ds = DisplayServer::singleton();
+            let ds = DisplayServer::singleton();
 
             let handle_int = ds.window_get_native_handle(HandleType::WINDOW_HANDLE);
 
@@ -58,7 +59,9 @@ impl ClickThroughManager {
 
         #[cfg(not(target_os = "windows"))]
         {
-            godot_print!("Native window clickthrough flags are only implemented for Windows OS.");
+            use godot::classes::display_server::WindowFlags;
+            let mut ds = DisplayServer::singleton();
+            ds.window_set_flag(WindowFlags::MOUSE_PASSTHROUGH, enabled);
         }
     }
 }
